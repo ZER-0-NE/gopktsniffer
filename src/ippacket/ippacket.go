@@ -1,4 +1,4 @@
-package ip_packet
+package ippacket
 
 import (
 	"github.com/google/gopacket"

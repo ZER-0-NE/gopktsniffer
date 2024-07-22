@@ -9,15 +9,20 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	frame2 "gopacketsniffer/src/frame"
-	"gopacketsniffer/src/ip_packet"
-	"gopacketsniffer/src/tcp_segment"
+	"gopacketsniffer/src/ippacket"
+	"gopacketsniffer/src/tcpseg"
 	"net"
 	"net/http"
+	"time"
 )
 
 // Command-line flags
-var intfName = flag.String("i", "en0", "Interface to read packets from")
-var siteName = flag.String("site", "www.example.com", "Website to send a request to")
+var (
+	intfName       = flag.String("i", "en0", "Interface to read packets from")
+	siteName       = flag.String("site", "www.example.com", "Website to send a request to")
+	packetCount    = flag.Int("count", 50, "Number of packets to capture before stopping")
+	stopGeneration = make(chan bool)
+)
 
 // dnsLookup performs a DNS lookup for the given domain and returns the first IPv4 address
 func dnsLookup(domain string) net.IP {
@@ -36,10 +41,21 @@ func dnsLookup(domain string) net.IP {
 
 // generatePackets sends an HTTP GET request to the specified site to generate network traffic
 func generatePackets() {
-	if resp, err := http.Get("http://" + *siteName); err != nil {
-		log.Printf("Could not get HTTP: %v", err)
-	} else {
-		defer resp.Body.Close()
+	ticker := time.NewTicker(time.Second * 5)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-stopGeneration:
+			return
+		case <-ticker.C:
+			if resp, err := http.Get("http://" + *siteName); err != nil {
+				log.Fatal().Err(err)
+			} else {
+				resp.Body.Close()
+				log.Info().Msg("Generated packet")
+			}
+		}
 	}
 }
 
@@ -57,7 +73,7 @@ func frameInfo(frame *frame2.L2Frame) {
 }
 
 // ipPacketInfo prints information about the IP layer (Layer 3)
-func ipPacketInfo(ip *ip_packet.IPv4Packet) {
+func ipPacketInfo(ip *ippacket.IPv4Packet) {
 	fmt.Printf("\n\n======== LAYER 3 (IP) =========\n")
 	fmt.Printf("[HEADER LENGTH] %v bytes\n", ip.IHL)
 	fmt.Printf("IP Packet Version: %v \n", ip.Version)
@@ -68,7 +84,7 @@ func ipPacketInfo(ip *ip_packet.IPv4Packet) {
 }
 
 // tcpSegmentInfo prints information about the TCP layer (Layer 4)
-func tcpSegmentInfo(segment *tcp_segment.TCPSegment, ip *ip_packet.IPv4Packet) {
+func tcpSegmentInfo(segment *tcpseg.TCPSegment, ip *ippacket.IPv4Packet) {
 	fmt.Printf("\n\n======== LAYER 4 (TCP/UDP) =========\n")
 	fmt.Printf("[SEGMENT LENGTH]: %v\n", len(segment.TCPPayload))
 	fmt.Printf("[HEADER LENGTH(DATA OFFSET)]: %v\n", segment.TCPHeader.DataOffset)
@@ -104,10 +120,10 @@ func displayAllLayers(packet gopacket.Packet) {
 	frame := frame2.Frames(packet)
 	frameInfo(frame)
 
-	ipPacket := ip_packet.IPPacket(packet)
+	ipPacket := ippacket.IPPacket(packet)
 	ipPacketInfo(ipPacket)
 
-	tcpSegment := tcp_segment.TcpSegment(packet)
+	tcpSegment := tcpseg.TcpSegment(packet)
 	tcpSegmentInfo(tcpSegment, ipPacket)
 
 	// Print application layer payload if available
@@ -128,21 +144,30 @@ func main() {
 
 	log.Info().Msgf("Capturing packets on %s interface", *intfName)
 
+	go generatePackets()        // Generate some network traffic
+	time.Sleep(2 * time.Second) // Wait for 2 seconds to ensure packets are generated
+
 	// Open the network interface for packet capture
 	if handle, err := pcap.OpenLive(*intfName, 65536, true, pcap.BlockForever); err != nil {
 		log.Fatal().Err(err)
-	} else if err := handle.SetBPFFilter("host " + ipViaDNS.String()); err != nil { // Set BPF filter to capture only packets related to the specified host
+	} else if err := handle.SetBPFFilter("host " + ipViaDNS.String()); err != nil {
 		log.Fatal().Err(err)
 	} else {
 		packetSource := gopacket.NewPacketSource(handle, handle.LinkType())
-		generatePackets() // Generate some network traffic
 		pktIdx := 1
 		// Process captured packets
 		for packet := range packetSource.Packets() {
 			fmt.Printf("\n\n======== PACKET %v =========\n\n", pktIdx)
 			displayAllLayers(packet)
 			pktIdx += 1
+			// Stop after capturing 100 packets
+			if pktIdx > *packetCount {
+				close(stopGeneration)
+				break
+			}
 		}
 		defer handle.Close()
 	}
+	// Wait for packet generation to stop
+	time.Sleep(1 * time.Second)
 }

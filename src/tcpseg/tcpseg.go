@@ -1,4 +1,4 @@
-package tcp_segment
+package tcpseg
 
 import (
 	"github.com/google/gopacket"
