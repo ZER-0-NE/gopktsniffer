@@ -1,6 +1,6 @@
-# Go Packet Sniffer and Generator (gopktsniffgen)
+# Go Packet Sniffer (gopktsniffer)
 
-`gopktsniffgen` is a flexible network packet analyzer written in Go. 
+`gopktsniffer` is a flexible network packet analyzer written in Go. 
 It provides detailed information about network packets across multiple layers of the OSI model.
 
 ## Features
