@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
+	"gopacketsniffer/pkg/config"
 	"log"
 	"net"
+	//const "gopacketsniffer/pkg/const"
 )
 
 type L2Frame struct {
@@ -35,10 +37,13 @@ type L2Frame struct {
 
 // ParseL2Frames extracts L2 frame information from a gopacket.Packet
 func ParseL2Frames(packet gopacket.Packet) (*L2Frame, error) {
+	// for using global flags
+	config.Init()
+
 	if l2Frame := packet.Layer(layers.LayerTypeEthernet); l2Frame != nil {
 		frame := l2Frame.(*layers.Ethernet)
 
-		intf, err := net.InterfaceByName("en0")
+		intf, err := net.InterfaceByName(*config.IntfName)
 		if err != nil {
 			log.Fatalf("failed to open interface: %v", err)
 		}

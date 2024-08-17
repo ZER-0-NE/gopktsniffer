@@ -2,13 +2,13 @@ package main
 
 import (
 	"errors"
-	"flag"
 	"fmt"
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/pcap"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"gopacketsniffer/pkg/applayer"
+	"gopacketsniffer/pkg/config"
 	frame2 "gopacketsniffer/pkg/frame"
 	"gopacketsniffer/pkg/ippacket"
 	"gopacketsniffer/pkg/phylayer"
@@ -16,14 +16,6 @@ import (
 	"net"
 	"net/http"
 	"time"
-)
-
-// Command-line flags
-var (
-	intfName       = flag.String("i", "en0", "Interface to read packets from")
-	siteName       = flag.String("site", "www.example.com", "Website to send a request to")
-	packetCount    = flag.Int("count", 50, "Number of packets to capture before stopping")
-	stopGeneration = make(chan bool)
 )
 
 // dnsLookup performs a DNS lookup for the given domain and returns the first IPv4 address
@@ -48,10 +40,10 @@ func generatePackets() {
 
 	for {
 		select {
-		case <-stopGeneration:
+		case <-config.StopGeneration:
 			return
 		case <-ticker.C:
-			if resp, err := http.Get("http://" + *siteName); err != nil {
+			if resp, err := http.Get("http://" + *config.SiteName); err != nil {
 				log.Fatal().Err(err)
 			} else {
 				//time.Sleep(time.Second * 2)
@@ -102,21 +94,20 @@ func displayAllLayers(packet gopacket.Packet) error {
 }
 
 func main() {
-	// Parse command-line flags
-	flag.Parse()
+	config.Init()
 	zerolog.TimeFieldFormat = zerolog.TimeFormatUnix
 
 	// Perform DNS lookup for the specified site
-	ipViaDNS := dnsLookup(*siteName)
+	ipViaDNS := dnsLookup(*config.SiteName)
 	log.Info().Msg(ipViaDNS.String())
 
-	log.Info().Msgf("Capturing packets on %s interface", *intfName)
+	log.Info().Msgf("Capturing packets on %s interface", *config.IntfName)
 
-	//go generatePackets()        // Generate some network traffic
+	//go generatePackets() // Generate some network traffic
 	//time.Sleep(2 * time.Second) // Wait for 2 seconds to ensure packets are generated
 
 	// Open the network interface for packet capture
-	if handle, err := pcap.OpenLive(*intfName, 65536, true, pcap.BlockForever); err != nil {
+	if handle, err := pcap.OpenLive(*config.IntfName, 65536, true, pcap.BlockForever); err != nil {
 		log.Fatal().Err(err)
 	} else if err := handle.SetBPFFilter("host " + ipViaDNS.String()); err != nil {
 		log.Fatal().Err(err)
@@ -131,9 +122,9 @@ func main() {
 				errors.New("failed parsing layer")
 			}
 			pktIdx += 1
-			//// Stop after capturing 100 packets
-			//if pktIdx > *packetCount {
-			//	close(stopGeneration)
+			// Stop after capturing defined number of packets (defaults to 50)
+			//if pktIdx > *config.PacketCount {
+			//	close(config.StopGeneration)
 			//	break
 			//}
 		}
